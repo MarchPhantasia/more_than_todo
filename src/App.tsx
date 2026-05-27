@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { type DragEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { addDays, formatMonthDay, formatShortWeekday, toDateKey } from "./domain/date";
+import { requestNotificationPermission } from "./domain/feedback";
 import { formatTimer } from "./domain/focusTimer";
 import { parseQuickAdd, type QuickAddParseResult } from "./domain/quickAdd";
 import { repeatLabel } from "./domain/repeat";
@@ -227,6 +228,13 @@ const readFileText = (file: File): Promise<string> => {
 };
 
 const readJsonFile = async (file: File): Promise<unknown> => JSON.parse(await readFileText(file));
+
+type NotificationUiState = NotificationPermission | "unsupported";
+
+const getNotificationPermissionState = (): NotificationUiState => {
+  if (!("Notification" in globalThis)) return "unsupported";
+  return globalThis.Notification.permission;
+};
 
 export default function App({ repository, todayOverride }: AppProps) {
   const resolvedRepository = useMemo(() => repository ?? createTaskRepository(), [repository]);
@@ -2616,6 +2624,10 @@ function PomodoroPanel() {
   const resetFocus = useTaskStore((state) => state.resetFocus);
   const setFocusDuration = useTaskStore((state) => state.setFocusDuration);
   const [durationInput, setDurationInput] = useState(String(focus.durationMinutes));
+  const [notificationPermission, setNotificationPermission] = useState<NotificationUiState>(() =>
+    getNotificationPermissionState()
+  );
+  const [requestingNotification, setRequestingNotification] = useState(false);
   const statusText =
     focus.status === "idle"
       ? "准备中"
@@ -2628,6 +2640,17 @@ function PomodoroPanel() {
   useEffect(() => {
     setDurationInput(String(focus.durationMinutes));
   }, [focus.durationMinutes]);
+
+  const enableSystemNotifications = async () => {
+    setRequestingNotification(true);
+    try {
+      setNotificationPermission(await requestNotificationPermission());
+    } catch {
+      setNotificationPermission(getNotificationPermissionState());
+    } finally {
+      setRequestingNotification(false);
+    }
+  };
 
   return (
     <section className="animate-panel-soft p-5">
@@ -2679,6 +2702,51 @@ function PomodoroPanel() {
           <span className="text-sm font-medium text-muted">分钟</span>
         </div>
       </label>
+
+      <div className="mt-4 rounded-md border border-line bg-white/80 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">系统通知</p>
+            <p className="mt-1 text-xs leading-5 text-muted">
+              {notificationPermission === "granted"
+                ? "系统通知已开启"
+                : notificationPermission === "denied"
+                  ? "系统通知已被浏览器关闭，请在站点权限里重新开启。"
+                  : notificationPermission === "unsupported"
+                    ? "当前浏览器不支持系统通知。"
+                    : "开启后，番茄钟结束会弹出 Windows 系统通知。"}
+            </p>
+          </div>
+          {notificationPermission === "default" ? (
+            <button
+              aria-label="启用系统通知"
+              className="focus-ring shrink-0 rounded-md border border-focus/20 bg-focus/10 px-3 py-2 text-xs font-semibold text-focus transition-all duration-200 hover:border-focus/35 hover:bg-focus/15 disabled:cursor-wait disabled:opacity-60"
+              disabled={requestingNotification}
+              type="button"
+              onClick={enableSystemNotifications}
+            >
+              {requestingNotification ? "请求中" : "启用系统通知"}
+            </button>
+          ) : (
+            <span
+              className={clsx(
+                "shrink-0 rounded-md border px-2.5 py-1.5 text-xs font-semibold",
+                notificationPermission === "granted"
+                  ? colorClass.teal
+                  : notificationPermission === "denied"
+                    ? colorClass.coral
+                    : priorityClass.none
+              )}
+            >
+              {notificationPermission === "granted"
+                ? "已开启"
+                : notificationPermission === "denied"
+                  ? "已关闭"
+                  : "不可用"}
+            </span>
+          )}
+        </div>
+      </div>
 
       <div className="mt-4 flex gap-2">
         {focus.status === "running" ? (

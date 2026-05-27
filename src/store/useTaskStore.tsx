@@ -1,7 +1,7 @@
 import { createContext, type ReactNode, useContext, useRef } from "react";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { notifyFocusComplete, playCompletionTone, requestNotificationPermission } from "../domain/feedback";
+import { notifyFocusComplete, playCompletionTone } from "../domain/feedback";
 import { createInitialFocusTimer, focusTimerReducer, type FocusTimerState } from "../domain/focusTimer";
 import { getNextScheduledDate } from "../domain/repeat";
 import { isDeleted, isOpen, sortTasks } from "../domain/taskSelectors";
@@ -972,7 +972,6 @@ export const createTaskStore = (
     },
 
     startFocus(taskId) {
-      void requestNotificationPermission();
       set({
         focus: focusTimerReducer(get().focus, {
           type: "start",

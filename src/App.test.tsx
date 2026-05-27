@@ -1,10 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { createMemoryRepository } from "./data/memoryRepository";
 
 describe("More Than Todo app", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("explains how the main work views differ", async () => {
     render(
       <App
@@ -262,6 +266,33 @@ describe("More Than Todo app", () => {
     await user.type(screen.getByLabelText("番茄钟时长"), "15");
 
     expect(screen.getByText("15:00")).toBeInTheDocument();
+  });
+
+  it("lets users explicitly enable system notifications for completed focus sessions", async () => {
+    const user = userEvent.setup();
+    const notificationConstructor = vi.fn() as unknown as {
+      new (title: string, options?: NotificationOptions): Notification;
+      permission: NotificationPermission;
+      requestPermission: ReturnType<typeof vi.fn>;
+    };
+    notificationConstructor.permission = "default";
+    notificationConstructor.requestPermission = vi.fn(async () => {
+      notificationConstructor.permission = "granted";
+      return "granted";
+    });
+    vi.stubGlobal("Notification", notificationConstructor);
+
+    render(
+      <App
+        repository={createMemoryRepository()}
+        todayOverride="2026-05-27"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "启用系统通知" }));
+
+    expect(notificationConstructor.requestPermission).toHaveBeenCalled();
+    expect(await screen.findByText("系统通知已开启")).toBeInTheDocument();
   });
 
   it("adds a project from the sidebar and uses it for quick add", async () => {

@@ -38,20 +38,18 @@ export const notifyFocusComplete = async (taskTitle?: string): Promise<boolean> 
   if (!("Notification" in globalThis)) return false;
 
   const NotificationCtor = globalThis.Notification;
-  let permission = NotificationCtor.permission;
-
-  if (permission === "default") {
-    permission = await NotificationCtor.requestPermission();
-  }
-
-  if (permission !== "granted") return false;
+  if (NotificationCtor.permission !== "granted") return false;
 
   const body = taskTitle ? `${taskTitle} 的专注时间完成了。` : "当前专注时间完成了。";
-  new NotificationCtor("番茄钟已结束", {
-    body,
-    silent: false
-  });
-  return true;
+  try {
+    new NotificationCtor("番茄钟已结束", {
+      body,
+      silent: false
+    });
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const requestNotificationPermission = async (): Promise<NotificationPermission | "unsupported"> => {
