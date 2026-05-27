@@ -30,7 +30,16 @@ describe("motion rendering", () => {
     expect(css).toContain(".animate-modal-backdrop");
     expect(css).toContain(".animate-modal-panel");
     expect(css).toContain(".animate-modal-content");
-    expect(css).toContain("animation: modal-panel-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both");
+    expect(css).toContain("animation: modal-panel-in 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards");
     expect(css).toContain("transform: translateY(18px) scale(0.965)");
+  });
+
+  it("does not keep the command panel text on transform compositing layers after opening", () => {
+    const panelAnimationBlock = css.match(/\.animate-modal-panel \{[\s\S]*?\}/)?.[0] ?? "";
+    const contentAnimationBlock = css.match(/\.animate-modal-content \{[\s\S]*?\}/)?.[0] ?? "";
+
+    expect(panelAnimationBlock).not.toContain("will-change");
+    expect(panelAnimationBlock).not.toContain(" both");
+    expect(contentAnimationBlock).not.toContain(" both");
   });
 });

@@ -171,6 +171,7 @@ describe("More Than Todo app", () => {
 
     expect(commandPanel).toHaveAttribute("role", "dialog");
     expect(screen.getByTestId("quick-add-command-backdrop")).toHaveClass("animate-modal-backdrop");
+    expect(screen.getByTestId("quick-add-command-backdrop")).not.toHaveClass("backdrop-blur-[3px]");
     expect(commandPanel).toHaveClass("animate-modal-panel");
     expect(within(commandPanel).getByText("#项目")).toBeInTheDocument();
 

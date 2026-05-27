@@ -1404,7 +1404,7 @@ function QuickAdd() {
 
       {panelOpen && (
         <div
-          className="animate-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-ink/25 px-3 py-6 backdrop-blur-[3px]"
+          className="animate-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-3 py-6"
           data-testid="quick-add-command-backdrop"
           onClick={() => setPanelOpen(false)}
         >
