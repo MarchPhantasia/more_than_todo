@@ -1,3 +1,4 @@
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import clsx from "clsx";
 import {
   BookOpen,
@@ -288,6 +289,7 @@ function Workbench() {
       <Toast />
       <TaskDetailsDrawer />
       <UsageManualDrawer />
+      <SpeedInsights />
     </main>
   );
 }
