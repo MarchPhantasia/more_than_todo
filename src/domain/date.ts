@@ -5,6 +5,16 @@ const pad = (value: number) => String(value).padStart(2, "0");
 export const toDateKey = (date: Date): DateKey =>
   `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
+export const timestampToDateKey = (timestamp?: string): DateKey | undefined => {
+  if (!timestamp) return undefined;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return toDateKey(date);
+};
+
+export const isTimestampOnDateKey = (timestamp: string | undefined, key: DateKey): boolean =>
+  timestampToDateKey(timestamp) === key;
+
 export const parseDateKey = (key: DateKey): Date => {
   const [year, month, day] = key.split("-").map(Number);
   return new Date(year, month - 1, day);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -293,6 +293,31 @@ describe("More Than Todo app", () => {
 
     expect(notificationConstructor.requestPermission).toHaveBeenCalled();
     expect(await screen.findByText("系统通知已开启")).toBeInTheDocument();
+  });
+
+  it("counts completed focus sessions by the user's local day", async () => {
+    const repository = createMemoryRepository("2026-05-28");
+    const localEarlyMorning = new Date(2026, 4, 28, 0, 30);
+    await repository.saveFocusSession({
+      id: "focus-local-midnight",
+      plannedMinutes: 1,
+      startedAt: localEarlyMorning.toISOString(),
+      endedAt: localEarlyMorning.toISOString(),
+      status: "completed"
+    });
+
+    render(
+      <App
+        repository={repository}
+        todayOverride="2026-05-28"
+      />
+    );
+
+    const rhythmPanel = await screen.findByTestId("today-rhythm-panel");
+    const focusMetric = within(rhythmPanel).getByText("专注分钟").closest("div");
+
+    expect(focusMetric).not.toBeNull();
+    expect(within(focusMetric as HTMLElement).getByText("1")).toBeInTheDocument();
   });
 
   it("adds a project from the sidebar and uses it for quick add", async () => {

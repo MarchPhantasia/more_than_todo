@@ -1,4 +1,4 @@
-import { addDays, compareDateKey, getWeekDates, parseDateKey, toDateKey } from "./date";
+import { addDays, compareDateKey, getWeekDates, isTimestampOnDateKey, parseDateKey, toDateKey } from "./date";
 import type { DateKey, Priority, Task } from "./types";
 
 export type TaskViewFilter =
@@ -165,4 +165,4 @@ export const buildMonthPlan = (tasks: Task[], focusDate: DateKey): MonthPlanDay[
 };
 
 export const countTodayCompleted = (tasks: Task[], today: DateKey): number =>
-  tasks.filter((task) => task.status === "completed" && !isDeleted(task) && task.completedAt?.startsWith(today)).length;
+  tasks.filter((task) => task.status === "completed" && !isDeleted(task) && isTimestampOnDateKey(task.completedAt, today)).length;

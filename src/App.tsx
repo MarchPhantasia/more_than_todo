@@ -27,7 +27,7 @@ import {
   X
 } from "lucide-react";
 import { type DragEvent, type ReactNode, useEffect, useMemo, useState } from "react";
-import { addDays, formatMonthDay, formatShortWeekday, toDateKey } from "./domain/date";
+import { addDays, formatMonthDay, formatShortWeekday, isTimestampOnDateKey, toDateKey } from "./domain/date";
 import { requestNotificationPermission } from "./domain/feedback";
 import { formatTimer } from "./domain/focusTimer";
 import { parseQuickAdd, type QuickAddParseResult } from "./domain/quickAdd";
@@ -1850,7 +1850,7 @@ function TodayRhythmPanel() {
   const completedToday = countTodayCompleted(tasks, today);
   const overdueCount = todayTasks.filter((task) => task.scheduledDate && task.scheduledDate < today).length;
   const focusMinutes = sessions
-    .filter((session) => session.status === "completed" && session.endedAt?.startsWith(today))
+    .filter((session) => session.status === "completed" && isTimestampOnDateKey(session.endedAt, today))
     .reduce((sum, session) => sum + session.plannedMinutes, 0);
   const nextTask = todayTasks.find((task) => task.status === "open");
 
