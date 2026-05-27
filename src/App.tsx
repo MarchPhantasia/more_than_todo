@@ -26,7 +26,18 @@ import {
   Upload,
   X
 } from "lucide-react";
-import { type DragEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { addDays, formatMonthDay, formatShortWeekday, isTimestampOnDateKey, toDateKey } from "./domain/date";
 import { requestNotificationPermission } from "./domain/feedback";
 import { formatTimer } from "./domain/focusTimer";
@@ -36,9 +47,10 @@ import {
   buildMonthPlan,
   buildWeekPlan,
   countTodayCompleted,
-  filterTasksForView
+  filterTasksForView,
+  sortTasks
 } from "./domain/taskSelectors";
-import type { Area, ChecklistItem, ColorToken, Priority, Project, ProjectSection, RepeatRule, Task } from "./domain/types";
+import type { Area, ChecklistItem, ColorToken, DateKey, Priority, Project, ProjectSection, RepeatRule, Task } from "./domain/types";
 import { createTaskRepository, type TaskRepository } from "./data/repository";
 import {
   isTaskDataExport,
@@ -340,9 +352,6 @@ function Sidebar() {
   const addArea = useTaskStore((state) => state.addArea);
   const deleteArea = useTaskStore((state) => state.deleteArea);
   const updateTask = useTaskStore((state) => state.updateTask);
-  const exportData = useTaskStore((state) => state.exportData);
-  const importData = useTaskStore((state) => state.importData);
-  const clearAllData = useTaskStore((state) => state.clearAllData);
   const [projectDraft, setProjectDraft] = useState("");
   const [areaDraft, setAreaDraft] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
@@ -352,11 +361,9 @@ function Sidebar() {
   const [deleteProjectDraft, setDeleteProjectDraft] = useState("");
   const [deleteAreaDraft, setDeleteAreaDraft] = useState("");
   const [dragTarget, setDragTarget] = useState<string>();
-  const [dataToolMessage, setDataToolMessage] = useState("");
-  const [pendingImport, setPendingImport] = useState<PendingImport>();
-  const [fileInputKey, setFileInputKey] = useState(0);
-  const [confirmingClearData, setConfirmingClearData] = useState(false);
-  const [clearDataDraft, setClearDataDraft] = useState("");
+  const [dataToolsOpen, setDataToolsOpen] = useState(false);
+  const [areasCollapsed, setAreasCollapsed] = useState(false);
+  const [projectsCollapsed, setProjectsCollapsed] = useState(false);
 
   const taskNav: Array<{ view: SidebarFixedView; label: string; icon: typeof Inbox }> = [
     { view: "inbox", label: "收集箱", icon: Inbox },
@@ -398,52 +405,6 @@ function Sidebar() {
     await addArea(trimmed);
     setAreaDraft("");
     setCreatingArea(false);
-  };
-
-  const handleExportData = async () => {
-    const snapshot = await exportData();
-    downloadJsonFile(`more-than-todo-${snapshot.exportedAt.slice(0, 10)}.json`, snapshot);
-    setDataToolMessage("已导出 JSON 文件");
-  };
-
-  const handleImportFile = async (file?: File) => {
-    if (!file) return;
-
-    setPendingImport(undefined);
-    setConfirmingClearData(false);
-    setDataToolMessage("");
-
-    try {
-      const snapshot = await readJsonFile(file);
-      if (!isTaskDataExport(snapshot)) {
-        setDataToolMessage("导入文件格式不正确");
-        return;
-      }
-
-      setPendingImport({ fileName: file.name, snapshot });
-      setDataToolMessage("导入文件已读取");
-    } catch {
-      setDataToolMessage("导入文件格式不正确");
-    } finally {
-      setFileInputKey((value) => value + 1);
-    }
-  };
-
-  const handleConfirmImport = async () => {
-    if (!pendingImport) return;
-    await importData(pendingImport.snapshot);
-    setPendingImport(undefined);
-    setDataToolMessage("数据已导入");
-  };
-
-  const handleClearAllData = async () => {
-    await clearAllData();
-    setConfirmingClearData(false);
-    setClearDataDraft("");
-    setDeletingProjectId(undefined);
-    setDeletingAreaId(undefined);
-    setPendingImport(undefined);
-    setDataToolMessage("所有本地数据已清空");
   };
 
   const getViewDropPatch = (view: SidebarFixedView): Partial<Task> | undefined => {
@@ -541,6 +502,7 @@ function Sidebar() {
   };
 
   return (
+    <>
     <aside className="panel hidden min-h-[calc(100vh-2rem)] flex-col p-3 lg:flex">
       <div className="mb-5 flex items-center gap-3 px-2 py-1">
         <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue text-white">
@@ -564,17 +526,33 @@ function Sidebar() {
 
       <div className="mt-6">
         <div className="mb-2 flex items-center justify-between px-3 text-xs font-semibold uppercase tracking-wide text-muted">
-          <span>领域</span>
+          <button
+            aria-label={areasCollapsed ? "展开领域" : "折叠领域"}
+            className="focus-ring inline-flex min-w-0 items-center gap-1 rounded-md py-1 pr-2 text-left transition-colors hover:text-ink"
+            type="button"
+            onClick={() => setAreasCollapsed((value) => !value)}
+          >
+            <ChevronRight
+              aria-hidden="true"
+              className={clsx("transition-transform duration-200", !areasCollapsed && "rotate-90")}
+              size={13}
+            />
+            <span>领域</span>
+          </button>
           <button
             aria-label="新建领域"
             className="focus-ring rounded-md p-1 transition-colors hover:bg-paper hover:text-ink"
-            onClick={() => setCreatingArea(true)}
+            onClick={() => {
+              setAreasCollapsed(false);
+              setCreatingArea(true);
+            }}
             title="新建领域"
+            type="button"
           >
             <Plus size={14} />
           </button>
         </div>
-        {creatingArea && (
+        {!areasCollapsed && creatingArea && (
           <form
             className="mb-2 flex items-center gap-1 rounded-md border border-line bg-white px-2 py-1.5"
             onSubmit={(event) => {
@@ -616,11 +594,12 @@ function Sidebar() {
                 setCreatingArea(false);
               }}
             >
-              <X size={14} />
-            </button>
-          </form>
+            <X size={14} />
+          </button>
+        </form>
         )}
-        <div className="space-y-1">
+        {!areasCollapsed && (
+        <div className="animate-enter space-y-1">
           {areas.map((area) => {
             const selected = activeView === "area" && activeAreaId === area.id;
             const count = tasks.filter((task) => task.areaId === area.id && task.status === "open" && !task.deletedAt).length;
@@ -707,21 +686,38 @@ function Sidebar() {
             );
           })}
         </div>
+        )}
       </div>
 
       <div className="mt-6">
         <div className="mb-2 flex items-center justify-between px-3 text-xs font-semibold uppercase tracking-wide text-muted">
-          <span>项目</span>
+          <button
+            aria-label={projectsCollapsed ? "展开项目" : "折叠项目"}
+            className="focus-ring inline-flex min-w-0 items-center gap-1 rounded-md py-1 pr-2 text-left transition-colors hover:text-ink"
+            type="button"
+            onClick={() => setProjectsCollapsed((value) => !value)}
+          >
+            <ChevronRight
+              aria-hidden="true"
+              className={clsx("transition-transform duration-200", !projectsCollapsed && "rotate-90")}
+              size={13}
+            />
+            <span>项目</span>
+          </button>
           <button
             aria-label="新建项目"
             className="focus-ring rounded-md p-1 transition-colors hover:bg-paper hover:text-ink"
-            onClick={() => setCreatingProject(true)}
+            onClick={() => {
+              setProjectsCollapsed(false);
+              setCreatingProject(true);
+            }}
             title="新建项目"
+            type="button"
           >
             <Plus size={14} />
           </button>
         </div>
-        {creatingProject && (
+        {!projectsCollapsed && creatingProject && (
           <form
             className="mb-2 flex items-center gap-1 rounded-md border border-line bg-white px-2 py-1.5"
             onSubmit={(event) => {
@@ -761,11 +757,12 @@ function Sidebar() {
                 setCreatingProject(false);
               }}
             >
-              <X size={14} />
-            </button>
-          </form>
+            <X size={14} />
+          </button>
+        </form>
         )}
-        <div className="space-y-1">
+        {!projectsCollapsed && (
+        <div className="animate-enter space-y-1">
           {projects.map((project) => {
             const selected = activeView === "project" && activeProjectId === project.id;
             const count = tasks.filter((task) => task.projectId === project.id && task.status === "open" && !task.deletedAt).length;
@@ -851,23 +848,127 @@ function Sidebar() {
             );
           })}
         </div>
+        )}
       </div>
 
-      <div className="mt-auto rounded-md border border-line bg-paper p-3">
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
+      <div className="mt-auto px-1 pt-4">
+        <button
+          aria-label="打开数据工具"
+          className="focus-ring flex w-full items-center justify-center gap-2 rounded-md border border-line bg-white px-3 py-2.5 text-sm font-semibold text-muted shadow-sm transition-all duration-200 hover:border-blue/30 hover:text-blue"
+          type="button"
+          onClick={() => setDataToolsOpen(true)}
+          title="导入、导出、清空本地数据"
+        >
           <Database size={14} />
-          <span>数据工具</span>
+          <span>数据</span>
+        </button>
+      </div>
+    </aside>
+    {dataToolsOpen && <DataToolsDrawer onClose={() => setDataToolsOpen(false)} />}
+    </>
+  );
+}
+
+function DataToolsDrawer({ onClose }: { onClose: () => void }) {
+  const exportData = useTaskStore((state) => state.exportData);
+  const importData = useTaskStore((state) => state.importData);
+  const clearAllData = useTaskStore((state) => state.clearAllData);
+  const [dataToolMessage, setDataToolMessage] = useState("");
+  const [pendingImport, setPendingImport] = useState<PendingImport>();
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [confirmingClearData, setConfirmingClearData] = useState(false);
+  const [clearDataDraft, setClearDataDraft] = useState("");
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const handleExportData = async () => {
+    const snapshot = await exportData();
+    downloadJsonFile(`more-than-todo-${snapshot.exportedAt.slice(0, 10)}.json`, snapshot);
+    setPendingImport(undefined);
+    setConfirmingClearData(false);
+    setDataToolMessage("已导出 JSON 文件");
+  };
+
+  const handleImportFile = async (file?: File) => {
+    if (!file) return;
+
+    setPendingImport(undefined);
+    setConfirmingClearData(false);
+    setDataToolMessage("");
+
+    try {
+      const snapshot = await readJsonFile(file);
+      if (!isTaskDataExport(snapshot)) {
+        setDataToolMessage("导入文件格式不正确");
+        return;
+      }
+
+      setPendingImport({ fileName: file.name, snapshot });
+      setDataToolMessage("导入文件已读取");
+    } catch {
+      setDataToolMessage("导入文件格式不正确");
+    } finally {
+      setFileInputKey((value) => value + 1);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!pendingImport) return;
+    await importData(pendingImport.snapshot);
+    setPendingImport(undefined);
+    setDataToolMessage("数据已导入");
+  };
+
+  const handleClearAllData = async () => {
+    await clearAllData();
+    setConfirmingClearData(false);
+    setClearDataDraft("");
+    setPendingImport(undefined);
+    setDataToolMessage("所有本地数据已清空");
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-ink/20 backdrop-blur-[2px]" onClick={onClose}>
+      <aside
+        className="animate-drawer-in h-full w-full max-w-[420px] overflow-y-auto border-l border-line bg-white p-5 shadow-[0_20px_60px_rgba(25,32,42,0.18)]"
+        data-testid="data-tools-drawer"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">数据工具</p>
+            <h2 className="mt-1 text-xl font-semibold">本地数据流转</h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              这些操作只处理当前浏览器里的本地数据。导入会覆盖当前内容，清空会删除任务、项目、标签和专注记录。
+            </p>
+          </div>
+          <button
+            aria-label="关闭数据工具"
+            className="focus-ring rounded-md p-2 text-muted transition-colors duration-200 hover:bg-paper hover:text-ink"
+            type="button"
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
         </div>
-        <div className="space-y-2">
+
+        <div className="mt-5 space-y-3">
           <button
             aria-label="导出数据"
-            className="focus-ring flex w-full items-center justify-center gap-2 rounded-md border border-blue/20 bg-white px-3 py-2 text-sm font-semibold text-blue transition-colors duration-200 hover:bg-blue/10"
+            className="focus-ring flex w-full items-center justify-center gap-2 rounded-md border border-blue/20 bg-blue/5 px-3 py-3 text-sm font-semibold text-blue transition-colors duration-200 hover:bg-blue/10"
             type="button"
             onClick={() => void handleExportData()}
           >
-            <Download size={15} />
+            <Download size={16} />
             导出数据
           </button>
+
           <input
             key={fileInputKey}
             aria-label="选择导入文件"
@@ -878,15 +979,16 @@ function Sidebar() {
             onChange={(event) => void handleImportFile(event.target.files?.[0])}
           />
           <label
-            className="focus-ring flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-paper"
+            className="focus-ring flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-line bg-white px-3 py-3 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-paper"
             htmlFor="task-data-import-file"
           >
-            <Upload size={15} />
+            <Upload size={16} />
             导入数据
           </label>
+
           <button
             aria-label="清空所有数据"
-            className="focus-ring flex w-full items-center justify-center gap-2 rounded-md border border-coral/20 bg-white px-3 py-2 text-sm font-semibold text-coral transition-colors duration-200 hover:bg-coral/10"
+            className="focus-ring flex w-full items-center justify-center gap-2 rounded-md border border-coral/20 bg-coral/5 px-3 py-3 text-sm font-semibold text-coral transition-colors duration-200 hover:bg-coral/10"
             type="button"
             onClick={() => {
               setConfirmingClearData(true);
@@ -895,22 +997,23 @@ function Sidebar() {
               setPendingImport(undefined);
             }}
           >
-            <Eraser size={15} />
+            <Eraser size={16} />
             清空所有数据
           </button>
         </div>
+
         {pendingImport && (
-          <div className="animate-enter mt-3 rounded-md border border-blue/20 bg-white p-2">
-            <p className="truncate text-xs font-semibold text-ink">准备导入：{pendingImport.fileName}</p>
-            <p className="mt-1 text-xs leading-5 text-muted">
+          <div className="animate-enter mt-4 rounded-md border border-blue/20 bg-blue/5 p-3">
+            <p className="truncate text-sm font-semibold text-ink">准备导入：{pendingImport.fileName}</p>
+            <p className="mt-2 text-xs leading-5 text-muted">
               {pendingImport.snapshot.tasks.length} 个任务 / {pendingImport.snapshot.projects.length} 个项目 /{" "}
               {pendingImport.snapshot.sessions.length} 条专注记录
             </p>
-            <p className="mt-1 text-xs leading-5 text-muted">确认后会覆盖当前本地数据。</p>
-            <div className="mt-2 flex gap-2">
+            <p className="mt-1 text-xs leading-5 text-muted">确认后会覆盖当前本地数据。建议先导出当前数据作为备份。</p>
+            <div className="mt-3 flex gap-2">
               <button
                 aria-label="取消导入数据"
-                className="focus-ring flex-1 rounded-md border border-line bg-white px-2 py-1.5 text-xs font-semibold text-muted hover:text-ink"
+                className="focus-ring flex-1 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-muted hover:text-ink"
                 type="button"
                 onClick={() => setPendingImport(undefined)}
               >
@@ -918,7 +1021,7 @@ function Sidebar() {
               </button>
               <button
                 aria-label="确认导入数据"
-                className="focus-ring flex-1 rounded-md bg-ink px-2 py-1.5 text-xs font-semibold text-white"
+                className="focus-ring flex-1 rounded-md bg-ink px-3 py-2 text-xs font-semibold text-white"
                 type="button"
                 onClick={() => void handleConfirmImport()}
               >
@@ -927,22 +1030,23 @@ function Sidebar() {
             </div>
           </div>
         )}
+
         {confirmingClearData && (
-          <div className="animate-enter mt-3 rounded-md border border-coral/20 bg-coral/5 p-2">
-            <p className="text-xs font-semibold text-coral">确认清空所有本地数据</p>
-            <p className="mt-1 text-xs leading-5 text-muted">任务、项目、标签和专注记录都会被删除。</p>
+          <div className="animate-enter mt-4 rounded-md border border-coral/20 bg-coral/5 p-3">
+            <p className="text-sm font-semibold text-coral">确认清空所有本地数据</p>
+            <p className="mt-2 text-xs leading-5 text-muted">这个操作会清空任务、项目、领域、阶段、标签和专注记录。</p>
             <input
               aria-label="输入“清空”确认"
-              className="focus-ring mt-2 w-full rounded-md border border-line bg-white px-2 py-1.5 text-xs text-ink"
+              className="focus-ring mt-3 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
               name="clear-data-confirmation"
               placeholder="清空"
               value={clearDataDraft}
               onChange={(event) => setClearDataDraft(event.target.value)}
             />
-            <div className="mt-2 flex gap-2">
+            <div className="mt-3 flex gap-2">
               <button
                 aria-label="取消清空数据"
-                className="focus-ring flex-1 rounded-md border border-line bg-white px-2 py-1.5 text-xs font-semibold text-muted hover:text-ink"
+                className="focus-ring flex-1 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold text-muted hover:text-ink"
                 type="button"
                 onClick={() => {
                   setConfirmingClearData(false);
@@ -953,7 +1057,7 @@ function Sidebar() {
               </button>
               <button
                 aria-label="确认清空所有数据"
-                className="focus-ring flex-1 rounded-md bg-coral px-2 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                className="focus-ring flex-1 rounded-md bg-coral px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
                 disabled={clearDataDraft !== "清空"}
                 type="button"
                 onClick={() => void handleClearAllData()}
@@ -963,16 +1067,10 @@ function Sidebar() {
             </div>
           </div>
         )}
-        {dataToolMessage && <p className="mt-2 text-xs font-medium text-muted">{dataToolMessage}</p>}
-      </div>
 
-      <div className="mt-3 rounded-md border border-line bg-paper p-3">
-        <p className="text-xs font-semibold text-ink">V1 范围</p>
-        <p className="mt-1 text-xs leading-5 text-muted">
-          任务、计划、重复事项和番茄钟专注。无需账号，也不依赖云同步。
-        </p>
-      </div>
-    </aside>
+        {dataToolMessage && <p className="mt-4 rounded-md bg-paper px-3 py-2 text-xs font-medium text-muted">{dataToolMessage}</p>}
+      </aside>
+    </div>
   );
 }
 
@@ -986,6 +1084,7 @@ function MainPanel() {
   const today = useTaskStore((state) => state.today);
   const [upcomingMode, setUpcomingMode] = useState<UpcomingMode>("list");
   const [projectMode, setProjectMode] = useState<ProjectMode>("list");
+  const [selectedUpcomingDate, setSelectedUpcomingDate] = useState<DateKey>();
 
   const activeProject = projects.find((project) => project.id === activeProjectId);
   const activeArea = areas.find((area) => area.id === activeAreaId);
@@ -1011,12 +1110,23 @@ function MainPanel() {
           ? filterTasksForView(tasks, { type: "area", today, areaId: activeAreaId })
           : []
       : filterTasksForView(tasks, { type: activeView, today });
+  const selectedUpcomingTasks = selectedUpcomingDate ? getUpcomingDateTasks(tasks, selectedUpcomingDate).all : [];
+  const statsTasks = activeView === "upcoming" && selectedUpcomingDate ? selectedUpcomingTasks : visibleTasks;
   const transitionKey =
     activeView === "project"
       ? `project-${activeProjectId ?? "none"}`
       : activeView === "area"
         ? `area-${activeAreaId ?? "none"}`
         : activeView;
+
+  useEffect(() => {
+    if (activeView !== "upcoming") {
+      setSelectedUpcomingDate(undefined);
+      return;
+    }
+
+    setSelectedUpcomingDate((current) => current ?? today);
+  }, [activeView, today]);
 
   return (
     <div
@@ -1038,29 +1148,111 @@ function MainPanel() {
         {activeView === "project" && (
           <ProjectModeSwitch mode={projectMode} onChange={setProjectMode} />
         )}
-        <StatsBar visibleTasks={visibleTasks} />
+        {activeView === "upcoming" && selectedUpcomingDate && (
+          <div className="animate-enter mt-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue/15 bg-blue/5 px-3 py-2 text-sm">
+            <span className="font-semibold text-blue">正在查看 {formatMonthDay(selectedUpcomingDate)} 的任务</span>
+            <button
+              aria-label="查看全部未来计划"
+              className="focus-ring rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-muted shadow-sm transition-colors hover:text-ink"
+              type="button"
+              onClick={() => {
+                setSelectedUpcomingDate(undefined);
+                setUpcomingMode("list");
+              }}
+            >
+              查看全部未来计划
+            </button>
+          </div>
+        )}
+        <StatsBar visibleTasks={statsTasks} />
       </header>
 
       <div className="space-y-4 overflow-y-auto px-5 py-4">
-        {activeView === "upcoming" && upcomingMode === "week" ? (
-          <WeekPlanner />
-        ) : activeView === "upcoming" && upcomingMode === "month" ? (
-          <MonthPlanner />
+        {activeView === "upcoming" ? (
+          <>
+            {upcomingMode === "week" ? (
+              <WeekPlanner selectedDate={selectedUpcomingDate} onSelectDate={setSelectedUpcomingDate} />
+            ) : upcomingMode === "month" ? (
+              <MonthPlanner selectedDate={selectedUpcomingDate} onSelectDate={setSelectedUpcomingDate} />
+            ) : (
+              <WeekStrip selectedDate={selectedUpcomingDate} onSelectDate={setSelectedUpcomingDate} />
+            )}
+            {selectedUpcomingDate ? (
+              <UpcomingDateDetail date={selectedUpcomingDate} tasks={tasks} />
+            ) : upcomingMode === "list" ? (
+              <TaskList tasks={visibleTasks} />
+            ) : (
+              <p className="rounded-md border border-dashed border-line bg-white px-4 py-6 text-center text-sm text-muted">
+                点击一个日期，查看那一天的计划和截止任务。
+              </p>
+            )}
+          </>
         ) : activeView === "project" && activeProjectId ? (
           <ProjectTasksView projectId={activeProjectId} tasks={visibleTasks} mode={projectMode} />
         ) : (
-          <>
-            <WeekStrip />
-            <TaskList tasks={visibleTasks} />
-          </>
+          <TaskList tasks={visibleTasks} />
         )}
       </div>
     </div>
   );
 }
 
+type QuickAddDateChoice = "default" | "today" | "tomorrow" | "none" | "someday";
+type QuickAddRepeatChoice = "syntax" | "none" | "daily" | "weekly" | "monthly";
+
+const quickAddDateChoices: Array<{
+  label: string;
+  ariaLabel: string;
+  value: QuickAddDateChoice;
+  icon: string;
+  color: ColorToken;
+}> = [
+  { label: "今天", ariaLabel: "选择今天", value: "today", icon: "⭐", color: "blue" },
+  { label: "明天", ariaLabel: "选择明天", value: "tomorrow", icon: "🗓️", color: "teal" },
+  { label: "无日期", ariaLabel: "选择无日期", value: "none", icon: "⚡", color: "amber" },
+  { label: "将来", ariaLabel: "选择将来", value: "someday", icon: "🌙", color: "violet" }
+];
+
+const quickAddPriorityChoices: Array<{
+  label: string;
+  ariaLabel: string;
+  value: Priority;
+  icon: string;
+  color: ColorToken;
+}> = [
+  { label: "普通", ariaLabel: "选择普通优先级", value: "none", icon: "•", color: "teal" },
+  { label: "高优先级", ariaLabel: "选择高优先级", value: "high", icon: "🚩", color: "coral" },
+  { label: "中优先级", ariaLabel: "选择中优先级", value: "medium", icon: "⚑", color: "amber" },
+  { label: "低优先级", ariaLabel: "选择低优先级", value: "low", icon: "⚐", color: "blue" }
+];
+
+const quickAddRepeatChoices: Array<{
+  label: string;
+  ariaLabel: string;
+  value: QuickAddRepeatChoice;
+  icon: string;
+  color: ColorToken;
+}> = [
+  { label: "不重复", ariaLabel: "选择不重复", value: "none", icon: "—", color: "teal" },
+  { label: "每天", ariaLabel: "选择每天重复", value: "daily", icon: "🔁", color: "focus" },
+  { label: "每周", ariaLabel: "选择每周重复", value: "weekly", icon: "↻", color: "blue" },
+  { label: "每月", ariaLabel: "选择每月重复", value: "monthly", icon: "◷", color: "violet" }
+];
+
+const getRepeatRuleFromChoice = (choice: QuickAddRepeatChoice): RepeatRule | undefined => {
+  if (choice === "daily") return { type: "daily", interval: 1 };
+  if (choice === "weekly") return { type: "weekly", interval: 1 };
+  if (choice === "monthly") return { type: "monthly", interval: 1 };
+  return undefined;
+};
+
 function QuickAdd() {
   const [title, setTitle] = useState("");
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [dateChoice, setDateChoice] = useState<QuickAddDateChoice>("default");
+  const [priorityChoice, setPriorityChoice] = useState<Priority | undefined>();
+  const [repeatChoice, setRepeatChoice] = useState<QuickAddRepeatChoice>("syntax");
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const activeView = useTaskStore((state) => state.activeView);
   const activeProjectId = useTaskStore((state) => state.activeProjectId);
   const activeAreaId = useTaskStore((state) => state.activeAreaId);
@@ -1072,6 +1264,57 @@ function QuickAdd() {
   const addTag = useTaskStore((state) => state.addTag);
   const tomorrow = addDays(today, 1);
   const parsed = useMemo(() => parseQuickAdd(title, today), [title, today]);
+  const resolvedQuick = useMemo<QuickAddParseResult>(() => {
+    let scheduledDate = parsed.scheduledDate;
+    let someday = parsed.someday;
+    let clearDate = parsed.clearDate;
+
+    if (dateChoice === "today") {
+      scheduledDate = today;
+      someday = false;
+      clearDate = false;
+    } else if (dateChoice === "tomorrow") {
+      scheduledDate = tomorrow;
+      someday = false;
+      clearDate = false;
+    } else if (dateChoice === "none") {
+      scheduledDate = undefined;
+      someday = false;
+      clearDate = true;
+    } else if (dateChoice === "someday") {
+      scheduledDate = undefined;
+      someday = true;
+      clearDate = true;
+    }
+
+    return {
+      ...parsed,
+      priority: priorityChoice ?? parsed.priority,
+      repeatRule: repeatChoice === "syntax" ? parsed.repeatRule : getRepeatRuleFromChoice(repeatChoice),
+      scheduledDate,
+      someday,
+      clearDate
+    };
+  }, [dateChoice, parsed, priorityChoice, repeatChoice, today, tomorrow]);
+
+  useEffect(() => {
+    if (!panelOpen) return;
+    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [panelOpen]);
+
+  useEffect(() => {
+    if (!panelOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPanelOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [panelOpen]);
 
   const getQuickAddOptions = (quick: QuickAddParseResult): Partial<Task> => {
     if (activeView === "inbox") return { list: "inbox", pomodoroEstimate: 1 };
@@ -1085,7 +1328,7 @@ function QuickAdd() {
   };
 
   const handleSubmit = async () => {
-    const quick = parseQuickAdd(title, today);
+    const quick = resolvedQuick;
     if (!quick.title) return;
 
     const project =
@@ -1112,6 +1355,10 @@ function QuickAdd() {
 
     await addTask(quick.title, { ...defaultOptions, ...explicitOptions });
     setTitle("");
+    setDateChoice("default");
+    setPriorityChoice(undefined);
+    setRepeatChoice("syntax");
+    setPanelOpen(false);
   };
 
   const placeholder =
@@ -1124,30 +1371,210 @@ function QuickAdd() {
           : activeView === "upcoming"
             ? "添加明天或未来的计划..."
             : "添加今天要做的任务...";
+  const contextLabel =
+    activeView === "project" ? "当前项目" : activeView === "area" ? "当前领域" : viewLabel[activeView];
 
   return (
-    <form
-      className="w-full max-w-md rounded-md border border-line bg-white p-2 shadow-sm"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void handleSubmit();
-      }}
+    <>
+      <button
+        aria-label="打开快速添加"
+        className="focus-ring group relative w-full max-w-2xl overflow-hidden rounded-lg border border-line bg-white/95 p-3 text-left shadow-[0_14px_36px_rgba(31,41,55,0.08)] backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:border-blue/25 hover:shadow-[0_20px_58px_rgba(47,95,208,0.14)]"
+        data-testid="quick-add-launcher"
+        type="button"
+        onClick={() => setPanelOpen(true)}
+      >
+        <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-blue/35 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue text-white shadow-[0_10px_24px_rgba(47,95,208,0.24)]">
+            <Plus size={18} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold text-muted">
+              <span className="rounded-md border border-blue/15 bg-blue/5 px-2 py-0.5 text-blue">{contextLabel}</span>
+              <span>快速捕捉</span>
+            </div>
+            <p className="truncate text-[15px] font-semibold text-ink">{title.trim() || placeholder}</p>
+          </div>
+          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-ink px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors duration-200 group-hover:bg-blue">
+            打开
+            <ChevronRight size={14} />
+          </div>
+        </div>
+      </button>
+
+      {panelOpen && (
+        <div
+          className="animate-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-ink/25 px-3 py-6 backdrop-blur-[3px]"
+          data-testid="quick-add-command-backdrop"
+          onClick={() => setPanelOpen(false)}
+        >
+          <form
+            aria-labelledby="quick-add-command-title"
+            aria-modal="true"
+            className="animate-modal-panel w-full max-w-2xl overflow-hidden rounded-xl border border-line bg-white shadow-[0_30px_90px_rgba(25,32,42,0.22)]"
+            data-testid="quick-add-command-panel"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmit();
+            }}
+          >
+            <div className="animate-modal-content border-b border-line bg-paper/70 px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue">Command Panel</p>
+                  <h3 id="quick-add-command-title" className="mt-1 text-xl font-semibold tracking-normal">
+                    快速添加任务
+                  </h3>
+                </div>
+                <button
+                  aria-label="关闭快速添加"
+                  className="focus-ring rounded-md p-2 text-muted transition-colors hover:bg-white hover:text-ink"
+                  type="button"
+                  onClick={() => setPanelOpen(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="animate-modal-content space-y-5 p-5">
+              <div className="rounded-lg border border-blue/20 bg-blue/5 p-3 shadow-inner">
+                <input
+                  ref={inputRef}
+                  className="focus-ring w-full rounded-md border-0 bg-white px-3 py-3 text-lg font-semibold tracking-normal outline-none placeholder:text-muted"
+                  name="quick-add-title"
+                  placeholder="写下任务标题，也可以用 #项目 @标签 p1 今天 每周"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-muted">
+                  <span className="rounded-sm bg-white px-1.5 py-0.5">#项目</span>
+                  <span className="rounded-sm bg-white px-1.5 py-0.5">@标签</span>
+                  <span className="rounded-sm bg-white px-1.5 py-0.5">p1</span>
+                  <span className="rounded-sm bg-white px-1.5 py-0.5">今天</span>
+                  <span className="rounded-sm bg-white px-1.5 py-0.5">每周</span>
+                </div>
+              </div>
+
+              <QuickAddOptionGroup label="日期">
+                {quickAddDateChoices.map((choice) => (
+                  <QuickAddOptionButton
+                    key={choice.value}
+                    active={dateChoice === choice.value}
+                    ariaLabel={choice.ariaLabel}
+                    color={choice.color}
+                    icon={choice.icon}
+                    label={choice.label}
+                    onClick={() => setDateChoice((current) => (current === choice.value ? "default" : choice.value))}
+                  />
+                ))}
+              </QuickAddOptionGroup>
+
+              <QuickAddOptionGroup label="优先级">
+                {quickAddPriorityChoices.map((choice) => (
+                  <QuickAddOptionButton
+                    key={choice.value}
+                    active={priorityChoice === choice.value}
+                    ariaLabel={choice.ariaLabel}
+                    color={choice.color}
+                    icon={choice.icon}
+                    label={choice.label}
+                    onClick={() => setPriorityChoice((current) => (current === choice.value ? undefined : choice.value))}
+                  />
+                ))}
+              </QuickAddOptionGroup>
+
+              <QuickAddOptionGroup label="重复">
+                {quickAddRepeatChoices.map((choice) => (
+                  <QuickAddOptionButton
+                    key={choice.value}
+                    active={repeatChoice === choice.value}
+                    ariaLabel={choice.ariaLabel}
+                    color={choice.color}
+                    icon={choice.icon}
+                    label={choice.label}
+                    onClick={() => setRepeatChoice((current) => (current === choice.value ? "syntax" : choice.value))}
+                  />
+                ))}
+              </QuickAddOptionGroup>
+
+              <div className="rounded-lg border border-line bg-paper/70 px-3 py-3">
+                <QuickAddPreview parsed={resolvedQuick} />
+                {!resolvedQuick.projectName &&
+                  resolvedQuick.tagNames.length === 0 &&
+                  resolvedQuick.priority === "none" &&
+                  !resolvedQuick.scheduledDate &&
+                  !resolvedQuick.repeatRule &&
+                  !resolvedQuick.someday &&
+                  !resolvedQuick.clearDate && (
+                    <p className="text-xs font-semibold text-muted">只写标题也可以，其他设置都可以以后再补。</p>
+                  )}
+              </div>
+            </div>
+
+            <div className="animate-modal-content flex flex-wrap items-center justify-end gap-2 border-t border-line bg-paper/70 px-5 py-4">
+              <button
+                className="focus-ring rounded-md px-3 py-2 text-sm font-semibold text-muted transition-colors hover:bg-white hover:text-ink"
+                type="button"
+                onClick={() => setPanelOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                className="focus-ring inline-flex items-center gap-1.5 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-blue disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!resolvedQuick.title}
+                type="submit"
+              >
+                创建任务
+                <ChevronRight size={15} />
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
+function QuickAddOptionGroup({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold text-muted">{label}</p>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
+    </div>
+  );
+}
+
+function QuickAddOptionButton({
+  active,
+  ariaLabel,
+  color,
+  icon,
+  label,
+  onClick
+}: {
+  active: boolean;
+  ariaLabel: string;
+  color: ColorToken;
+  icon: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={ariaLabel}
+      className={clsx(
+        "focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm",
+        active ? "border-ink bg-ink text-white shadow-sm" : colorClass[color]
+      )}
+      type="button"
+      onClick={onClick}
     >
-      <div className="flex items-center gap-2">
-        <Plus size={17} className="text-blue" />
-        <input
-          className="focus-ring min-w-0 flex-1 rounded-md border-0 bg-transparent px-1 py-1 text-sm outline-none"
-          name="quick-add-title"
-          placeholder={placeholder}
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-        <button className="rounded-md bg-blue px-3 py-1.5 text-xs font-semibold text-white transition-colors duration-200 hover:bg-blue/90" type="submit">
-          添加
-        </button>
-      </div>
-      <QuickAddPreview parsed={parsed} />
-    </form>
+      <span aria-hidden="true">{icon}</span>
+      {label}
+    </button>
   );
 }
 
@@ -1166,9 +1593,13 @@ function QuickAddPreview({ parsed }: { parsed: QuickAddParseResult }) {
   if (chips.length === 0) return null;
 
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
+    <div className="mt-3 flex flex-wrap items-center gap-1.5" data-testid="quick-add-preview">
+      <span className="mr-0.5 text-[11px] font-semibold text-muted">将创建为</span>
       {chips.map((chip) => (
-        <span key={chip} className="rounded-md border border-blue/15 bg-blue/5 px-2 py-1 text-[11px] font-semibold text-blue">
+        <span
+          key={chip}
+          className="animate-enter rounded-md border border-blue/15 bg-blue/5 px-2 py-1 text-[11px] font-semibold text-blue"
+        >
           {chip}
         </span>
       ))}
@@ -1511,64 +1942,85 @@ function ProjectTasksView({
   );
 }
 
-function WeekStrip() {
+function WeekStrip({
+  selectedDate,
+  onSelectDate
+}: {
+  selectedDate?: DateKey;
+  onSelectDate?: (date: DateKey) => void;
+} = {}) {
   const tasks = useTaskStore((state) => state.tasks);
   const today = useTaskStore((state) => state.today);
   const week = buildWeekPlan(tasks, today);
 
   return (
     <section className="soft-panel grid grid-cols-7 gap-1 p-2">
-      {week.map((day, index) => (
-        <div
-          key={day.date}
-          className={clsx(
-            "rounded-md px-2 py-3 text-center",
-            index === 0 ? "bg-blue text-white" : "bg-white text-ink"
-          )}
-        >
-          <p className={clsx("text-xs", index === 0 ? "text-white/75" : "text-muted")}>
-            {formatShortWeekday(day.date)}
-          </p>
-          <p className="mt-1 text-sm font-semibold">{formatMonthDay(day.date)}</p>
-          <p className={clsx("mt-2 text-xs", index === 0 ? "text-white/80" : "text-muted")}>
-            {day.openCount} 个任务
-          </p>
-        </div>
-      ))}
+      {week.map((day, index) => {
+        const selected = selectedDate === day.date;
+        const active = selected || (!selectedDate && index === 0);
+        const className = clsx(
+          "rounded-md px-2 py-3 text-center transition-all duration-200",
+          active ? "bg-blue text-white shadow-sm" : "bg-white text-ink",
+          onSelectDate && !active && "hover:-translate-y-0.5 hover:bg-blue/5"
+        );
+        const content = (
+          <>
+            <p className={clsx("text-xs", active ? "text-white/75" : "text-muted")}>
+              {formatShortWeekday(day.date)}
+            </p>
+            <p className="mt-1 text-sm font-semibold">{formatMonthDay(day.date)}</p>
+            <p className={clsx("mt-2 text-xs", active ? "text-white/80" : "text-muted")}>
+              {day.openCount} 个任务
+            </p>
+          </>
+        );
+
+        return onSelectDate ? (
+          <button
+            key={day.date}
+            aria-label={`查看 ${formatMonthDay(day.date)}任务`}
+            className={className}
+            type="button"
+            onClick={() => onSelectDate(day.date)}
+          >
+            {content}
+          </button>
+        ) : (
+          <div key={day.date} className={className}>
+            {content}
+          </div>
+        );
+      })}
     </section>
   );
 }
 
-function WeekPlanner() {
+function WeekPlanner({
+  selectedDate,
+  onSelectDate
+}: {
+  selectedDate?: DateKey;
+  onSelectDate(date: DateKey): void;
+}) {
   const tasks = useTaskStore((state) => state.tasks);
   const today = useTaskStore((state) => state.today);
-  const updateTask = useTaskStore((state) => state.updateTask);
-  const [dragTarget, setDragTarget] = useState<string>();
   const week = buildWeekPlan(tasks, today);
 
   return (
     <section className="grid gap-3 md:grid-cols-7" data-testid="upcoming-week-view">
-      {week.map((day, index) => (
-        <div
+      {week.map((day, index) => {
+        const selected = selectedDate === day.date;
+        return (
+        <button
           key={day.date}
+          aria-label={`查看 ${formatMonthDay(day.date)}任务`}
           className={clsx(
-            "soft-panel min-h-40 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue/25",
+            "soft-panel min-h-40 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-blue/25",
             index === 0 && "border-blue/30 bg-blue/5",
-            dragTarget === day.date && "ring-2 ring-blue/25"
+            selected && "border-blue/50 bg-blue/10 ring-2 ring-blue/20"
           )}
-          onDragLeave={() => setDragTarget(undefined)}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-            setDragTarget(day.date);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragTarget(undefined);
-            const taskId = getDraggedTaskId(event);
-            if (!taskId) return;
-            void updateTask(taskId, { scheduledDate: day.date, someday: false, list: undefined });
-          }}
+          type="button"
+          onClick={() => onSelectDate(day.date)}
         >
           <p className="text-xs font-semibold text-muted">{formatShortWeekday(day.date)}</p>
           <h3 className="mt-1 text-sm font-semibold">{formatMonthDay(day.date)}</h3>
@@ -1586,17 +2038,22 @@ function WeekPlanner() {
               <span className="font-semibold text-teal">{day.completedCount}</span>
             </p>
           </div>
-        </div>
-      ))}
+        </button>
+        );
+      })}
     </section>
   );
 }
 
-function MonthPlanner() {
+function MonthPlanner({
+  selectedDate,
+  onSelectDate
+}: {
+  selectedDate?: DateKey;
+  onSelectDate(date: DateKey): void;
+}) {
   const tasks = useTaskStore((state) => state.tasks);
   const today = useTaskStore((state) => state.today);
-  const updateTask = useTaskStore((state) => state.updateTask);
-  const [dragTarget, setDragTarget] = useState<string>();
   const month = buildMonthPlan(tasks, today);
   const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -1610,30 +2067,21 @@ function MonthPlanner() {
       <div className="grid grid-cols-7 gap-1">
         {month.map((day) => {
           const active = day.date === today;
+          const selected = selectedDate === day.date;
           const hasWork = day.openCount > 0 || day.deadlineCount > 0;
           return (
-            <div
+            <button
               key={day.date}
+              aria-label={`查看 ${formatMonthDay(day.date)}任务`}
               className={clsx(
-                "min-h-20 rounded-md border p-2 transition-all duration-200",
+                "min-h-20 rounded-md border p-2 text-left transition-all duration-200",
                 day.inCurrentMonth ? "border-line bg-white" : "border-transparent bg-paper/70 text-muted",
                 active && "border-blue/40 bg-blue/5",
                 hasWork && "hover:-translate-y-0.5 hover:border-blue/25",
-                dragTarget === day.date && "ring-2 ring-blue/25"
+                selected && "border-blue/50 bg-blue/10 ring-2 ring-blue/20"
               )}
-              onDragLeave={() => setDragTarget(undefined)}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                setDragTarget(day.date);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragTarget(undefined);
-                const taskId = getDraggedTaskId(event);
-                if (!taskId) return;
-                void updateTask(taskId, { scheduledDate: day.date, someday: false, list: undefined });
-              }}
+              type="button"
+              onClick={() => onSelectDate(day.date)}
             >
               <div className="flex items-center justify-between">
                 <span className={clsx("text-xs font-semibold", active ? "text-blue" : "text-muted")}>
@@ -1658,11 +2106,117 @@ function MonthPlanner() {
                   </span>
                 )}
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
     </section>
+  );
+}
+
+function getUpcomingDateTasks(tasks: Task[], date: DateKey) {
+  const openTasks = tasks.filter((task) => task.status === "open" && !task.deletedAt && !task.someday);
+  const planned = sortTasks(openTasks.filter((task) => task.scheduledDate === date));
+  const deadlines = sortTasks(openTasks.filter((task) => task.dueDate === date && task.scheduledDate !== date));
+  return {
+    planned,
+    deadlines,
+    all: sortTasks([...planned, ...deadlines])
+  };
+}
+
+function UpcomingDateDetail({ date, tasks }: { date: DateKey; tasks: Task[] }) {
+  const { planned, deadlines, all } = getUpcomingDateTasks(tasks, date);
+
+  return (
+    <section className="soft-panel animate-enter p-4" data-testid="upcoming-date-detail">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue">日期查看</p>
+          <h3 className="mt-1 text-lg font-semibold">{formatMonthDay(date)}的任务</h3>
+        </div>
+        <span className="rounded-md border border-line bg-paper px-2.5 py-1 text-xs font-semibold text-muted">
+          只读
+        </span>
+      </div>
+
+      {all.length === 0 ? (
+        <div className="mt-4 rounded-md border border-dashed border-line bg-paper/70 px-4 py-8 text-center">
+          <p className="text-sm font-semibold text-ink">这一天没有任务</p>
+          <p className="mt-1 text-xs text-muted">可以切换其它日期查看计划和截止事项。</p>
+        </div>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <ReadOnlyTaskGroup title="计划任务" tasks={planned} emptyText="这一天没有计划任务" />
+          <ReadOnlyTaskGroup title="截止任务" tasks={deadlines} emptyText="这一天没有截止任务" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReadOnlyTaskGroup({ title, tasks, emptyText }: { title: string; tasks: Task[]; emptyText: string }) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted">{title}</p>
+        <span className="rounded-md bg-paper px-2 py-1 text-xs font-semibold text-muted">{tasks.length}</span>
+      </div>
+      {tasks.length > 0 ? (
+        <div className="space-y-2">
+          {tasks.map((task) => (
+            <ReadOnlyTaskPreview key={`${title}-${task.id}`} task={task} />
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-md border border-dashed border-line bg-paper/60 px-3 py-4 text-center text-xs text-muted">
+          {emptyText}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ReadOnlyTaskPreview({ task }: { task: Task }) {
+  const projects = useTaskStore((state) => state.projects);
+  const tags = useTaskStore((state) => state.tags);
+  const project = projects.find((item) => item.id === task.projectId);
+  const selectedTags = tags.filter((tag) => task.tagIds.includes(tag.id));
+
+  return (
+    <article className="rounded-md border border-line bg-white px-3 py-3 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className={clsx("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", dotClass[project?.color ?? "blue"])} />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-ink">{task.title}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold">
+            {task.scheduledDate && (
+              <span className="rounded-md border border-blue/15 bg-blue/5 px-2 py-1 text-blue">
+                计划 {formatMonthDay(task.scheduledDate)}
+              </span>
+            )}
+            {task.dueDate && (
+              <span className="rounded-md border border-coral/15 bg-coral/5 px-2 py-1 text-coral">
+                截止 {formatMonthDay(task.dueDate)}
+              </span>
+            )}
+            {project && (
+              <span className="rounded-md border border-line bg-paper px-2 py-1 text-muted">{project.name}</span>
+            )}
+            {selectedTags.map((tag) => (
+              <span key={tag.id} className={clsx("rounded-md border px-2 py-1", colorClass[tag.color])}>
+                {tag.name}
+              </span>
+            ))}
+            {task.priority !== "none" && (
+              <span className={clsx("rounded-md border px-2 py-1", priorityClass[task.priority])}>
+                {priorityLabel[task.priority]}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -2061,20 +2615,47 @@ function UsageManualDrawer() {
 
         <div className="mt-5 space-y-3 text-sm leading-6 text-muted">
           <section className="rounded-md border border-line bg-paper/70 p-3">
-            <h3 className="text-sm font-semibold text-ink">1. 只写标题也完全可以</h3>
-            <p className="mt-1">收集箱用于暂存想法；今日用于执行；未来计划用于安排日期；随时和将来用于降低今日压力。</p>
+            <h3 className="text-sm font-semibold text-ink">1. 默认只要求你写标题</h3>
+            <p className="mt-1">
+              这个应用的入口不是表单，而是一句话。先把要做的事写下来，项目、标签、日期、重复都可以以后再补。
+              如果一个任务现在只是一句提醒，它仍然是有效任务。
+            </p>
           </section>
           <section className="rounded-md border border-line bg-white p-3">
-            <h3 className="text-sm font-semibold text-ink">2. 需要组织时再打开详情</h3>
-            <p className="mt-1">点击任务右侧箭头，才进入项目、标签、日期、重复和更多设置。任务行主体只是选中，不会打断你继续看列表。</p>
+            <h3 className="text-sm font-semibold text-ink">2. 收集箱是缓冲区，不是长期列表</h3>
+            <p className="mt-1">
+              收集箱适合快速捕捉想法、临时任务和还没想清楚的事。定期把它们分到今日、未来计划、随时或将来，
+              可以让收集箱保持轻，不变成另一个压力源。
+            </p>
           </section>
           <section className="rounded-md border border-line bg-white p-3">
-            <h3 className="text-sm font-semibold text-ink">3. 项目先够用，领域和阶段以后再用</h3>
+            <h3 className="text-sm font-semibold text-ink">3. 今日不是所有重要任务的仓库</h3>
+            <p className="mt-1">
+              今日只放你真的准备推进的任务。重要但不打算今天做的事，放到未来计划；没有日期但可以随手处理的事，
+              放到随时；暂时不推进但不想丢掉的想法，放到将来。
+            </p>
+          </section>
+          <section className="rounded-md border border-line bg-white p-3">
+            <h3 className="text-sm font-semibold text-ink">4. 组织是为了减少选择，而不是制造表单</h3>
+            <p className="mt-1">
+              项目用于把同一目标下的任务放在一起；标签用于描述上下文，比如地点、精力或工具；优先级只标真正需要提醒自己的事。
+              这些都是可选能力，不需要每个任务都填满。
+            </p>
+          </section>
+          <section className="rounded-md border border-line bg-white p-3">
+            <h3 className="text-sm font-semibold text-ink">5. 领域和阶段是进阶能力</h3>
+            <p className="mt-1">
+              领域像“工作、生活、学习”这种长期责任区；阶段是项目内的分段。刚开始使用时可以完全忽略它们，
+              等项目变多、任务变复杂时再使用。
+            </p>
             <p className="mt-1">领域和阶段是进阶能力，不是开始使用 Todo 的前提。</p>
           </section>
           <section className="rounded-md border border-line bg-white p-3">
-            <h3 className="text-sm font-semibold text-ink">4. 专注独立记录</h3>
-            <p className="mt-1">番茄钟不强制绑定任务。你可以先开一个专注时段，再决定是否补充任务信息。</p>
+            <h3 className="text-sm font-semibold text-ink">6. 专注独立记录</h3>
+            <p className="mt-1">
+              番茄钟不强制绑定任务。你可以先开一个专注时段，结束后它会计入今日节奏；任务和专注记录保持松耦合，
+              这样更适合临时处理、阅读和整理类工作。
+            </p>
           </section>
         </div>
       </aside>
@@ -2628,6 +3209,10 @@ function PomodoroPanel() {
     getNotificationPermissionState()
   );
   const [requestingNotification, setRequestingNotification] = useState(false);
+  const [draggingDuration, setDraggingDuration] = useState(false);
+  const ringRef = useRef<HTMLDivElement | null>(null);
+  const durationDragRef = useRef<{ lastAngle: number; minutes: number } | null>(null);
+  const durationDragCleanupRef = useRef<(() => void) | undefined>(undefined);
   const statusText =
     focus.status === "idle"
       ? "准备中"
@@ -2636,10 +3221,127 @@ function PomodoroPanel() {
         : focus.status === "paused"
           ? "已暂停"
           : "已完成";
+  const displayedDuration = Math.min(120, Math.max(0, focus.durationMinutes));
+  const outerRingRadius = 58;
+  const ringViewBoxSize = 160;
+  const anchorRadiusPercent = (outerRingRadius / ringViewBoxSize) * 100;
+  const ringCircumference = 2 * Math.PI * outerRingRadius;
+  const firstRoundProgress = Math.min(displayedDuration, 60) / 60;
+  const secondRoundProgress = Math.max(0, displayedDuration - 60) / 60;
+  const timerText = formatTimer(focus.remainingSeconds);
+  const compactTimerText = timerText.length >= 6;
+  const anchorAngle = ((displayedDuration % 60) / 60) * 360;
+  const anchorRadians = (anchorAngle * Math.PI) / 180;
+  const anchorPosition = {
+    left: `${50 + Math.sin(anchorRadians) * anchorRadiusPercent}%`,
+    top: `${50 - Math.cos(anchorRadians) * anchorRadiusPercent}%`
+  };
 
   useEffect(() => {
     setDurationInput(String(focus.durationMinutes));
   }, [focus.durationMinutes]);
+
+  const applyDuration = useCallback(
+    (minutes: number) => {
+      const nextMinutes = Math.min(120, Math.max(0, Math.round(Number.isFinite(minutes) ? minutes : focus.durationMinutes)));
+      setDurationInput(String(nextMinutes));
+      setFocusDuration(nextMinutes);
+    },
+    [focus.durationMinutes, setFocusDuration]
+  );
+
+  const getPointerAngle = useCallback((clientX: number, clientY: number) => {
+    const rect = ringRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const angle = (Math.atan2(clientX - centerX, centerY - clientY) * 180) / Math.PI;
+    return angle < 0 ? angle + 360 : angle;
+  }, []);
+
+  const updateDragDuration = useCallback(
+    (clientX: number, clientY: number) => {
+      const dragState = durationDragRef.current;
+      if (!dragState) return;
+      const nextAngle = getPointerAngle(clientX, clientY);
+      const delta = ((nextAngle - dragState.lastAngle + 540) % 360) - 180;
+      const nextMinutes = Math.min(120, Math.max(0, dragState.minutes + delta / 6));
+      dragState.lastAngle = nextAngle;
+      dragState.minutes = nextMinutes;
+      applyDuration(nextMinutes);
+    },
+    [applyDuration, getPointerAngle]
+  );
+
+  useEffect(() => () => durationDragCleanupRef.current?.(), []);
+
+  const beginDurationDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (focus.status === "running") return;
+    event.preventDefault();
+    durationDragCleanupRef.current?.();
+    durationDragRef.current = {
+      lastAngle: getPointerAngle(event.clientX, event.clientY),
+      minutes: displayedDuration
+    };
+    const handlePointerMove = (pointerEvent: PointerEvent) => updateDragDuration(pointerEvent.clientX, pointerEvent.clientY);
+    const endDurationDrag = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", endDurationDrag);
+      durationDragRef.current = null;
+      durationDragCleanupRef.current = undefined;
+      setDraggingDuration(false);
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", endDurationDrag);
+    durationDragCleanupRef.current = endDurationDrag;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDraggingDuration(true);
+  };
+
+  const beginDurationMouseDrag = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (focus.status === "running") return;
+    event.preventDefault();
+    durationDragCleanupRef.current?.();
+    durationDragRef.current = {
+      lastAngle: getPointerAngle(event.clientX, event.clientY),
+      minutes: displayedDuration
+    };
+    const handleMouseMove = (mouseEvent: MouseEvent) => updateDragDuration(mouseEvent.clientX, mouseEvent.clientY);
+    const endDurationDrag = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", endDurationDrag);
+      durationDragRef.current = null;
+      durationDragCleanupRef.current = undefined;
+      setDraggingDuration(false);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", endDurationDrag);
+    durationDragCleanupRef.current = endDurationDrag;
+    setDraggingDuration(true);
+  };
+
+  const handleDurationKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (focus.status === "running") return;
+    if (["ArrowRight", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      applyDuration(displayedDuration + 1);
+    } else if (["ArrowLeft", "ArrowDown"].includes(event.key)) {
+      event.preventDefault();
+      applyDuration(displayedDuration - 1);
+    } else if (event.key === "PageUp") {
+      event.preventDefault();
+      applyDuration(displayedDuration + 5);
+    } else if (event.key === "PageDown") {
+      event.preventDefault();
+      applyDuration(displayedDuration - 5);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      applyDuration(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      applyDuration(120);
+    }
+  };
 
   const enableSystemNotifications = async () => {
     setRequestingNotification(true);
@@ -2666,15 +3368,77 @@ function PomodoroPanel() {
 
       <div className="rounded-md border border-line bg-paper p-4 text-center">
         <div
+          ref={ringRef}
           className={clsx(
-            "mx-auto flex h-36 w-36 items-center justify-center rounded-full border-[10px] border-focus/20 bg-white",
-            focus.status === "running" && "timer-ring"
+            "relative mx-auto flex h-40 w-40 items-center justify-center rounded-full bg-white shadow-sm",
+            focus.status === "running" && "timer-ring",
+            draggingDuration && "select-none"
           )}
+          data-testid="pomodoro-duration-ring"
         >
-          <span className="text-4xl font-semibold tracking-normal">{formatTimer(focus.remainingSeconds)}</span>
+          <svg aria-hidden="true" className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 160 160">
+            <circle cx="80" cy="80" fill="none" r={outerRingRadius} stroke="rgba(32,178,107,0.16)" strokeWidth="10" />
+            <circle
+              cx="80"
+              cy="80"
+              fill="none"
+              r={outerRingRadius}
+              stroke="rgba(32,178,107,0.9)"
+              strokeDasharray={ringCircumference}
+              strokeDashoffset={ringCircumference * (1 - firstRoundProgress)}
+              strokeLinecap="round"
+              strokeWidth="10"
+              className={draggingDuration ? undefined : "transition-[stroke-dashoffset] duration-200"}
+            />
+            <circle cx="80" cy="80" fill="none" r="44" stroke="rgba(47,95,208,0.14)" strokeWidth="7" />
+            <circle
+              cx="80"
+              cy="80"
+              fill="none"
+              r="44"
+              stroke="rgba(47,95,208,0.78)"
+              strokeDasharray={2 * Math.PI * 44}
+              strokeDashoffset={2 * Math.PI * 44 * (1 - secondRoundProgress)}
+              strokeLinecap="round"
+              strokeWidth="7"
+              className={draggingDuration ? undefined : "transition-[stroke-dashoffset] duration-200"}
+            />
+          </svg>
+          <span
+            className={clsx(
+              "relative z-10 inline-flex max-w-[4.75rem] items-center justify-center whitespace-nowrap text-center font-semibold leading-none tracking-normal tabular-nums",
+              compactTimerText ? "text-2xl" : "text-4xl"
+            )}
+          >
+            {timerText}
+          </span>
+          <button
+            aria-label="拖动调整番茄钟时长"
+            aria-valuemax={120}
+            aria-valuemin={0}
+            aria-valuenow={displayedDuration}
+            aria-valuetext={`${displayedDuration} 分钟`}
+            aria-disabled={focus.status === "running"}
+            className={clsx(
+              "focus-ring absolute z-20 h-4 w-4 rounded-full border-2 border-white bg-focus shadow-[0_6px_18px_rgba(32,178,107,0.32)] transition-transform duration-150",
+              focus.status === "running" ? "cursor-not-allowed opacity-60" : "cursor-grab hover:scale-110 active:cursor-grabbing active:scale-95"
+            )}
+            disabled={focus.status === "running"}
+            role="slider"
+            style={{
+              left: anchorPosition.left,
+              top: anchorPosition.top,
+              transform: "translate(-50%, -50%)"
+            }}
+            title="拖动调整番茄钟时长"
+            type="button"
+            onKeyDown={handleDurationKeyDown}
+            onMouseDown={beginDurationMouseDrag}
+            onPointerDown={beginDurationDrag}
+          />
         </div>
         <p className="mt-4 text-sm font-semibold text-ink">独立专注</p>
-        <p className="mt-1 text-xs leading-5 text-muted">不绑定具体任务，完成后只记录本次专注分钟。</p>
+        <p className="mt-1 text-xs leading-5 text-muted">拖动圆环锚点调时长，最多两圈 120 分钟。</p>
       </div>
 
       <label className="mt-4 block text-xs font-semibold text-muted">
@@ -2685,7 +3449,7 @@ function PomodoroPanel() {
             className="form-control min-w-0 flex-1 disabled:bg-paper disabled:text-muted"
             name="focus-duration"
             type="number"
-            min={1}
+            min={0}
             max={120}
             disabled={focus.status === "running"}
             value={durationInput}
@@ -2696,7 +3460,7 @@ function PomodoroPanel() {
               const value = event.target.value;
               setDurationInput(value);
               if (!value) return;
-              setFocusDuration(Number(value));
+              applyDuration(Number(value));
             }}
           />
           <span className="text-sm font-medium text-muted">分钟</span>

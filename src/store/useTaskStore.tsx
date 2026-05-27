@@ -224,7 +224,7 @@ const normalizeRepeatRule = (repeatRule?: RepeatRule): RepeatRule | undefined =>
 };
 
 const normalizeFocusDuration = (minutes: number): number =>
-  Math.min(120, Math.max(1, Math.floor(Number.isFinite(minutes) ? minutes : 25)));
+  Math.min(120, Math.max(0, Math.floor(Number.isFinite(minutes) ? minutes : 25)));
 
 const normalizeChecklistItems = (items?: ChecklistItem[]): ChecklistItem[] =>
   Array.isArray(items)

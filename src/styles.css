@@ -112,6 +112,41 @@ button:disabled {
   }
 }
 
+@keyframes modal-backdrop-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-panel-in {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.965);
+  }
+  58% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.006);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modal-content-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes toast-in {
   0% {
     opacity: 0;
@@ -179,6 +214,20 @@ button:disabled {
     transform-origin: top center;
   }
 
+  .animate-modal-backdrop {
+    animation: modal-backdrop-in 320ms ease-out both;
+  }
+
+  .animate-modal-panel {
+    animation: modal-panel-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: center 46%;
+    will-change: opacity, transform;
+  }
+
+  .animate-modal-content {
+    animation: modal-content-in 360ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+  }
+
   .animate-toast {
     animation: toast-in 180ms ease-out both;
   }
@@ -241,6 +290,9 @@ button:disabled {
   .animate-panel-soft,
   .animate-main-panel-switch,
   .animate-settings-reveal,
+  .animate-modal-backdrop,
+  .animate-modal-panel,
+  .animate-modal-content,
   .animate-toast,
   .timer-ring {
     animation: none;

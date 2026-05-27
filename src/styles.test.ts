@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import css from "./styles.css?raw";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import tailwindConfig from "../tailwind.config";
+
+const css = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
 
 describe("global typography", () => {
   it("uses a refined Chinese-first font stack", () => {
@@ -18,5 +21,16 @@ describe("motion rendering", () => {
   it("avoids filter-based panel animations that make text look blurry", () => {
     expect(css).not.toContain("filter: blur");
     expect(css).not.toContain("will-change: opacity, transform, filter");
+  });
+
+  it("defines a graceful layered centered modal entrance animation", () => {
+    expect(css).toContain("@keyframes modal-backdrop-in");
+    expect(css).toContain("@keyframes modal-panel-in");
+    expect(css).toContain("@keyframes modal-content-in");
+    expect(css).toContain(".animate-modal-backdrop");
+    expect(css).toContain(".animate-modal-panel");
+    expect(css).toContain(".animate-modal-content");
+    expect(css).toContain("animation: modal-panel-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both");
+    expect(css).toContain("transform: translateY(18px) scale(0.965)");
   });
 });
