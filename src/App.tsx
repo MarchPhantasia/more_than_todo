@@ -39,7 +39,7 @@ import {
   useState
 } from "react";
 import { addDays, formatMonthDay, formatShortWeekday, isTimestampOnDateKey, toDateKey } from "./domain/date";
-import { requestNotificationPermission } from "./domain/feedback";
+import { notifyFocusComplete, requestNotificationPermission } from "./domain/feedback";
 import { formatTimer } from "./domain/focusTimer";
 import { parseQuickAdd, type QuickAddParseResult } from "./domain/quickAdd";
 import { repeatLabel } from "./domain/repeat";
@@ -3209,6 +3209,8 @@ function PomodoroPanel() {
     getNotificationPermissionState()
   );
   const [requestingNotification, setRequestingNotification] = useState(false);
+  const [testingNotification, setTestingNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState<string>();
   const [draggingDuration, setDraggingDuration] = useState(false);
   const ringRef = useRef<HTMLDivElement | null>(null);
   const durationDragRef = useRef<{ lastAngle: number; minutes: number } | null>(null);
@@ -3346,11 +3348,38 @@ function PomodoroPanel() {
   const enableSystemNotifications = async () => {
     setRequestingNotification(true);
     try {
-      setNotificationPermission(await requestNotificationPermission());
+      const permission = await requestNotificationPermission();
+      setNotificationPermission(permission);
+      setNotificationMessage(
+        permission === "granted"
+          ? "Chrome 通知已授权；可以先发送一次测试通知。"
+          : permission === "denied"
+            ? "通知被关闭了，请在 Chrome 站点权限和 Windows 通知设置里重新开启。"
+            : undefined
+      );
     } catch {
       setNotificationPermission(getNotificationPermissionState());
+      setNotificationMessage("通知权限请求失败，请检查浏览器站点权限。");
     } finally {
       setRequestingNotification(false);
+    }
+  };
+
+  const sendTestNotification = async () => {
+    setTestingNotification(true);
+    try {
+      const sent = await notifyFocusComplete("测试专注");
+      setNotificationPermission(getNotificationPermissionState());
+      setNotificationMessage(
+        sent
+          ? "测试通知已发送。如果仍没看到，请检查 Chrome 和 Windows 的通知开关。"
+          : "测试通知没有发出，请先允许 Chrome 站点通知，并确认 Windows 通知未被关闭。"
+      );
+    } catch {
+      setNotificationPermission(getNotificationPermissionState());
+      setNotificationMessage("测试通知发送失败，请检查 Chrome 站点权限。");
+    } finally {
+      setTestingNotification(false);
     }
   };
 
@@ -3491,25 +3520,33 @@ function PomodoroPanel() {
             >
               {requestingNotification ? "请求中" : "启用系统通知"}
             </button>
+          ) : notificationPermission === "granted" ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <span className={clsx("rounded-md border px-2.5 py-1.5 text-xs font-semibold", colorClass.teal)}>已开启</span>
+              <button
+                aria-label="发送测试通知"
+                className="focus-ring rounded-md border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-muted transition-colors duration-200 hover:border-focus/30 hover:text-focus disabled:cursor-wait disabled:opacity-60"
+                disabled={testingNotification}
+                type="button"
+                onClick={sendTestNotification}
+              >
+                {testingNotification ? "发送中" : "测试"}
+              </button>
+            </div>
           ) : (
             <span
               className={clsx(
                 "shrink-0 rounded-md border px-2.5 py-1.5 text-xs font-semibold",
-                notificationPermission === "granted"
-                  ? colorClass.teal
-                  : notificationPermission === "denied"
-                    ? colorClass.coral
-                    : priorityClass.none
+                notificationPermission === "denied" ? colorClass.coral : priorityClass.none
               )}
             >
-              {notificationPermission === "granted"
-                ? "已开启"
-                : notificationPermission === "denied"
-                  ? "已关闭"
-                  : "不可用"}
+              {notificationPermission === "denied" ? "已关闭" : "不可用"}
             </span>
           )}
         </div>
+        {notificationMessage && (
+          <p className="mt-2 rounded-md bg-paper px-2.5 py-2 text-xs leading-5 text-muted">{notificationMessage}</p>
+        )}
       </div>
 
       <div className="mt-4 flex gap-2">
